@@ -1,119 +1,124 @@
 import os
-import pandas as pd
 import warnings
+import pandas as pd
 from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score
+from sklearn.metrics import accuracy_score, classification_report
 from imblearn.over_sampling import SMOTE
-from sklearn.preprocessing import StandardScaler, LabelEncoder
-from sklearn.metrics import confusion_matrix, classification_report
-from sklearn.model_selection import cross_val_score
+from sklearn.preprocessing import LabelEncoder
 
-model = LogisticRegression(max_iter=1000, solver='liblinear')
-warnings.filterwarnings("ignore", category=FutureWarning)
+warnings.filterwarnings("ignore")
 
-def load_file(file_path):
-    if os.path.exists(file_path):
-        try:
-            _, file_extension = os.path.splitext(file_path)
-            if file_extension == '.csv':
-                df = pd.read_csv(file_path, nrows = 200)
-            elif file_extension == '.xlsx':
-                df = pd.read_excel(file_path, nrows = 200)
-            else:
-                print('Unsupported file type. Please upload a .csv or .xlsx file.')
-                return None
-            return df
-        except Exception as e:
-            print(f"Error loading file: {e}")
-            return None
+def load_dataset(file_path):
+    if not os.path.exists(file_path):
+        raise FileNotFoundError("The specified file does not exist.")
+    
+    _, file_extension = os.path.splitext(file_path)
+    if file_extension == '.csv':
+        return pd.read_csv(file_path)
+    elif file_extension == '.xlsx':
+        return pd.read_excel(file_path)
     else:
-        print('File does not exist. Please check file path and try again.')
-        return None
-    
+        raise ValueError("Unsupported file format. Use .csv or .xlsx only.")
+
+def analyze_columns(df):
+    print("----- Data Insights for Each Column -----\n")
+    for column in df.columns:
+        print(f"Column: {column}")
+        print(f" - Data Type: {df[column].dtype}")
+        print(f" - Unique Values: {df[column].nunique()}")
+        print(f" - Missing Values: {df[column].isnull().sum()}")
+        
+        if df[column].dtype in ['int64', 'float64']:
+            print(df[column].describe())
+        else:
+            print(f" - Top 5 Unique Values: {df[column].value_counts().head(5)}")
+        print("-" * 50)
+    print("----- End of Data Insights -----\n")
+
 def preprocess_data(df):
-    df = df.fillna(0)
+    print("Preprocessing data...")
     
-    le = LabelEncoder()
-    df['type'] = le.fit_transform(df['type'])
-    df['nameOrig'] = le.fit_transform(df['nameOrig'])
-    df['nameDest'] = le.fit_transform(df['nameDest'])
+    df.fillna(0, inplace=True)
     
-    df['isFraud'] = df['isFraud'].astype(int)
-    
-    return df
-
-def load_data():
-    df = pd.read_csv('/Users/gagewoodard/Downloads/cardsim.csv')
-    return df
-
-def check_missing_data(df):
-    print(f"\nMissing data per column:\n{df.isnull().sum()}\n")
-
-def handle_missing_values(df):
-    for col in df.columns:
-        if df[col].dtype == 'float64' or df[col].dtype == 'int64':
-            df[col].fillna(df[col].mean())
-
-def detect_transaction_type(df):
-    possible_columns = ['type', 'transaction_type', 'category']
-    for col in possible_columns:
-        if col in df.columns:
-            return df[col]
-    return None
-
-def encode_categorical_columns(df):
+    label_encoders = {}
     for column in df.columns:
         if df[column].dtype == 'object':
-            print(f"Encoding column: {column}")
-            dummies = pd.get_dummies(df[column], prefix=column)
-            df = pd.concat([df, dummies], axis=1)
-            df.drop(column, axis=1, inplace=True)
+            le = LabelEncoder()
+            df[column] = le.fit_transform(df[column].astype(str))
+            label_encoders[column] = le
+
     return df
 
-def split_features_target(df):
-    X = df.drop(columns=['isFraud'])
-    Y = df['isFraud']
+def analyze_columns_and_check_target(df):
+    print("----- Data Insights for Each Column -----\n")
+    potential_target_columns = []
     
-    X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.2, random_state=42)
-    
-    return X_train, X_test, Y_train, Y_test
+    for column in df.columns:
+        print(f"Column: {column}")
+        print(f" - Data Type: {df[column].dtype}")
+        print(f" - Unique Values: {df[column].nunique()}")
+        print(f" - Missing Values: {df[column].isnull().sum()}")
+        
+        if df[column].dtype in ['int64', 'float64']:
+            print(df[column].describe())
+        else:
+            print(f" - Top 5 Unique Values: {df[column].value_counts().head(5)}")
+        
+        if df[column].nunique() == 2:
+            potential_target_columns.append(column)
 
-def handle_class_imbalance(X_train, y_train):
-    smote = SMOTE(sampling_strategy='auto', random_state=42)
-    X_train_resampled, y_train_resampled = smote.fit_resample(X_train, y_train)
-    return X_train_resampled, y_train_resampled
+        print("-" * 50)
+    
+    print("----- End of Data Insights -----\n")
+    
+    if not potential_target_columns:
+        raise ValueError("No binary target column found in the dataset.")
+    
+    print(f"Potential Target Columns: {potential_target_columns}")
+    return potential_target_columns
 
 def main():
-    df = load_data()
-    df = preprocess_data(df)
 
-    X = df.drop('isFraud', axis=1)
-    y = df['isFraud']
+    file_path = input("Enter the file path (CSV or XLSX): ").strip()
 
-    X = X.to_numpy()
-    y = y.to_numpy()
+    try:
+        df = load_dataset(file_path)
+        
+        potential_target_columns = analyze_columns_and_check_target(df)
+        
+        target_column = potential_target_columns[0]
+        
+        print(f"Using column '{target_column}' as the target column.")
+        
+        df = preprocess_data(df)
+        
+        X = df.drop(columns=[target_column])
+        y = df[target_column]
+        
+        if y.empty:
+            raise ValueError(f"The target column '{target_column}' is empty.")
+        
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+        
+        smote = SMOTE(random_state=42)
+        X_train_resampled, y_train_resampled = smote.fit_resample(X_train, y_train)
+        
+        model = LogisticRegression(max_iter=500)
+        model.fit(X_train_resampled, y_train_resampled)
+        
+        y_pred = model.predict(X_test)
+        print("Classification Report:")
+        print(classification_report(y_test, y_pred))
 
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-
-    scaler = StandardScaler()
-    X_train_scaled = scaler.fit_transform(X_train)
-    X_test_scaled = scaler.transform(X_test)
-
-    X_train_resampled, y_train_resampled = handle_class_imbalance(X_train_scaled, y_train)
-
-    model.fit(X_train_resampled, y_train_resampled)
-
-    y_pred = model.predict(X_test_scaled)
-
-    accuracy = accuracy_score(y_test, y_pred)
-    print(f'Accuracy: {accuracy * 100:.2f}%')
-
-    print("\nConfusion Matrix:")
-    print(confusion_matrix(y_test, y_pred))
-
-    print("\nClassification Report (Precision, Recall, F1-Score):")
-    print(classification_report(y_test, y_pred))
+        valid_transactions = sum(y_pred == 0)
+        fraud_transactions = sum(y_pred == 1)  
+        
+        print(f"\033[92m{valid_transactions} transactions were valid\033[0m")
+        print(f"\033[91m{fraud_transactions} transactions were fraud\033[0m")
+        
+    except Exception as e:
+        print(f"Error: {e}")
 
 if __name__ == '__main__':
     main()
